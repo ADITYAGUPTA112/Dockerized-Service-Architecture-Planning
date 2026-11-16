@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (git-ignored) and fill with your values.
+# Never commit real tokens or private keys.
+
+do_token               = "replace_with_digitalocean_api_token"
+ssh_public_key         = "ssh-ed25519 AAAA... replace_with_your_public_key"
+project_name           = "dockerized-node-service"
+region                 = "nyc3"
+droplet_size           = "s-1vcpu-1gb"
+allow_direct_port_3000 = false

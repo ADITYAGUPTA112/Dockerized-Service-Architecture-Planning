@@ -1,0 +1,22 @@
+# Caddy v2 Reverse Proxy Configuration (Phase 3 / Should-Have)
+#
+# Option A (Recommended — Automatic HTTPS with a domain):
+#   Replace `example.com` below with your domain (or `<SERVER_IP>.sslip.io`),
+#   copy this file to /etc/caddy/Caddyfile, and run `sudo systemctl reload caddy`.
+#
+# Option B (Raw IP HTTP Fallback without a domain):
+#   Replace `example.com` with `:80` so HTTP Basic Auth works over port 80,
+#   note that TLS is only active when a hostname is configured.
+
+{$APP_DOMAIN:example.com} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:3000
+}

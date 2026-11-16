@@ -1,0 +1,155 @@
+---
+- name: Configure Ubuntu 24.04 Docker host for Dockerized Node.js Service
+  hosts: app_servers
+  become: true
+  vars:
+    deploy_user: deploy
+    allow_direct_port_3000: false
+
+  tasks:
+    - name: Update apt cache and install prerequisite packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - ufw
+        state: present
+        update_cache: true
+
+    - name: Ensure /etc/apt/keyrings exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Download Docker official GPG key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Add Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+
+    - name: Install Docker Engine packages
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker service is enabled and running
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Create non-root deploy user in docker group
+      ansible.builtin.user:
+        name: "{{ deploy_user }}"
+        shell: /bin/bash
+        groups: docker
+        append: true
+        create_home: true
+
+    - name: Ensure runtime app directory exists for deploy user
+      ansible.builtin.file:
+        path: "/home/{{ deploy_user }}/app"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0750"
+
+    - name: Ensure deploy SSH directory exists
+      ansible.builtin.file:
+        path: "/home/{{ deploy_user }}/.ssh"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0700"
+
+    - name: Add deploy_ssh_public_key when supplied
+      ansible.posix.authorized_key:
+        user: "{{ deploy_user }}"
+        state: present
+        key: "{{ deploy_ssh_public_key }}"
+      when: deploy_ssh_public_key is defined and (deploy_ssh_public_key | length > 0)
+
+    - name: Fallback copy root authorized_keys to deploy when deploy_ssh_public_key is omitted
+      ansible.builtin.copy:
+        src: /root/.ssh/authorized_keys
+        dest: "/home/{{ deploy_user }}/.ssh/authorized_keys"
+        remote_src: true
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0600"
+        force: false
+      when: deploy_ssh_public_key is not defined or (deploy_ssh_public_key | length == 0)
+
+    - name: Verify deploy authorized_keys is non-empty before locking root SSH
+      ansible.builtin.stat:
+        path: "/home/{{ deploy_user }}/.ssh/authorized_keys"
+      register: deploy_auth_keys
+
+    - name: Abort before SSH hardening if deploy authorized_keys is empty
+      ansible.builtin.fail:
+        msg: "Refusing to disable root/password SSH because /home/{{ deploy_user }}/.ssh/authorized_keys is empty."
+      when: not deploy_auth_keys.stat.exists or deploy_auth_keys.stat.size == 0
+
+    - name: Harden SSH daemon configuration
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/99-hardening.conf
+        mode: "0644"
+        content: |
+          PermitRootLogin no
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PubkeyAuthentication yes
+          AuthenticationMethods publickey
+          X11Forwarding no
+        validate: "/usr/sbin/sshd -t -f %s"
+      notify: Reload ssh
+
+    - name: Configure UFW default policies
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: incoming, policy: deny }
+        - { direction: outgoing, policy: allow }
+
+    - name: Allow SSH, HTTP, and HTTPS through UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "22"
+        - "80"
+        - "443"
+
+    - name: Optionally allow direct port 3000 through UFW
+      community.general.ufw:
+        rule: allow
+        port: "3000"
+        proto: tcp
+      when: allow_direct_port_3000 | bool
+
+    - name: Enable UFW firewall
+      community.general.ufw:
+        state: enabled
+
+  handlers:
+    - name: Reload ssh
+      ansible.builtin.service:
+        name: ssh
+        state: reloaded

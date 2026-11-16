@@ -1,0 +1,8 @@
+# Copy to inventory.ini (git-ignored) and replace with your server IP.
+[app_servers]
+service-prod ansible_host=replace_with_server_ip ansible_user=root
+
+[app_servers:vars]
+# Optional: supply public key if not already copied to deploy user
+# deploy_ssh_public_key=ssh-ed25519 AAAA...
+allow_direct_port_3000=false

@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Local environment secrets (NEVER commit)
+.env
+.env.*
+!.env.example
+
+# Test & coverage outputs
+coverage/
+*.log
+
+# Infrastructure state & secret vars
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+inventory.ini
+
+# OS / Editor artifacts
+.DS_Store
+Thumbs.db

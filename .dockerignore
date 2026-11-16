@@ -1,0 +1,24 @@
+# Secrets & local environment files (CRITICAL: never include in image)
+.env
+.env.*
+*.pem
+*.key
+
+# Version control & CI/CD
+.git
+.gitignore
+.gitattributes
+.github
+
+# Dependencies & logs (installed cleanly inside image)
+node_modules
+npm-debug.log*
+*.log
+coverage
+
+# Non-runtime documentation, tests, and infra scripts
+docs
+tests
+infra
+*.md
+eslint.config.mjs

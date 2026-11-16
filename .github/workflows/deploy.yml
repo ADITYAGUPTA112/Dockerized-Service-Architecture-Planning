@@ -1,0 +1,294 @@
+name: Build, Push, and Deploy Dockerized Service
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Lint, Hygiene & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify .env is not tracked in Git
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "FATAL: .env is committed to Git! Remove it before continuing." >&2
+            exit 1
+          fi
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run automated tests
+        run: npm test
+
+  build-and-push:
+    name: Build, Audit & Push Docker Image
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_repo: ${{ steps.vars.outputs.image_repo }}
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+      image_ref: ${{ steps.vars.outputs.image_ref }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compute lowercase GHCR image tags
+        id: vars
+        run: |
+          IMAGE_REPO="ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+          IMAGE_TAG="sha-${GITHUB_SHA::7}"
+          echo "image_repo=${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "image_ref=${IMAGE_REPO}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image into local daemon for security audit
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: |
+            ${{ steps.vars.outputs.image_ref }}
+            ${{ steps.vars.outputs.image_repo }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Audit container image (.env excluded & non-root UID)
+        run: |
+          docker run --rm --entrypoint sh "${{ steps.vars.outputs.image_ref }}" -c '
+            test ! -f /app/.env
+            test "$(id -u)" -eq 1000
+          '
+
+      - name: Push audited image tags to GHCR
+        run: |
+          docker push "${{ steps.vars.outputs.image_ref }}"
+          docker push "${{ steps.vars.outputs.image_repo }}:latest"
+
+  deploy:
+    name: SSH Deploy to Remote Linux Server
+    needs: build-and-push
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_REF: ${{ needs.build-and-push.outputs.image_ref }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      GHCR_ACTOR: ${{ github.actor }}
+      GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+      SECRET_MESSAGE: ${{ secrets.SECRET_MESSAGE }}
+      APP_USERNAME: ${{ secrets.APP_USERNAME }}
+      APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+      CONTAINER_PORT_BINDING: ${{ vars.CONTAINER_PORT_BINDING || '127.0.0.1:3000:3000' }}
+
+    steps:
+      - name: Validate required deploy secrets are configured
+        run: |
+          set +x
+          for var in SSH_HOST SSH_USER SSH_PRIVATE_KEY SECRET_MESSAGE APP_USERNAME APP_PASSWORD; do
+            if [ -z "${!var}" ]; then
+              echo "FATAL: Required GitHub Secret '$var' is not configured." >&2
+              exit 1
+            fi
+          done
+
+      - name: Prepare SSH key and upload runtime env file securely
+        run: |
+          set +x
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          ENV_TMP="$(mktemp)"
+          TOKEN_TMP="$(mktemp)"
+          trap 'rm -f "$ENV_TMP" "$TOKEN_TMP"' EXIT
+          chmod 600 "$ENV_TMP" "$TOKEN_TMP"
+
+          {
+            printf 'PORT=3000\n'
+            printf 'NODE_ENV=production\n'
+            printf 'SECRET_MESSAGE=%s\n' "$SECRET_MESSAGE"
+            printf 'USERNAME=%s\n' "$APP_USERNAME"
+            printf 'PASSWORD=%s\n' "$APP_PASSWORD"
+          } > "$ENV_TMP"
+
+          scp -i ~/.ssh/deploy_key -P "$SSH_PORT" -o StrictHostKeyChecking=accept-new \
+            "$ENV_TMP" "${SSH_USER}@${SSH_HOST}:~/app/.service.env.tmp"
+
+          if [ -n "$GHCR_READ_TOKEN" ]; then
+            printf '%s' "$GHCR_READ_TOKEN" > "$TOKEN_TMP"
+            scp -i ~/.ssh/deploy_key -P "$SSH_PORT" -o StrictHostKeyChecking=accept-new \
+              "$TOKEN_TMP" "${SSH_USER}@${SSH_HOST}:~/app/.ghcr.token.tmp"
+          fi
+
+      - name: Pull image, swap container with healthcheck & rollback guard
+        run: |
+          set +x
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new \
+            "${SSH_USER}@${SSH_HOST}" bash -s -- \
+            "$IMAGE_REF" "$CONTAINER_PORT_BINDING" "$GHCR_ACTOR" <<'EOF'
+          set -euo pipefail
+          IMAGE_REF="$1"
+          PORT_BINDING="$2"
+          GHCR_ACTOR="$3"
+
+          cleanup() {
+            rm -f ~/app/.ghcr.token.tmp
+          }
+          trap cleanup EXIT
+
+          mkdir -p ~/app
+          chmod 600 ~/app/.service.env.tmp
+          mv ~/app/.service.env.tmp ~/app/.service.env
+
+          if [ -f ~/app/.ghcr.token.tmp ]; then
+            chmod 600 ~/app/.ghcr.token.tmp
+            docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin < ~/app/.ghcr.token.tmp
+            rm -f ~/app/.ghcr.token.tmp
+          fi
+
+          PREV_IMAGE=$(docker inspect --format='{{.Config.Image}}' dockerized-service 2>/dev/null || true)
+          docker pull "$IMAGE_REF"
+
+          docker stop dockerized-service >/dev/null 2>&1 || true
+          docker rm dockerized-service >/dev/null 2>&1 || true
+
+          docker run -d \
+            --name dockerized-service \
+            --restart unless-stopped \
+            -p "$PORT_BINDING" \
+            --env-file ~/app/.service.env \
+            "$IMAGE_REF"
+
+          HEALTHY=false
+          for i in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then
+              HEALTHY=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$HEALTHY" != "true" ]; then
+            echo "New container failed health check! Recent logs:" >&2
+            docker logs --tail 50 dockerized-service >&2 || true
+            docker stop dockerized-service >/dev/null 2>&1 || true
+            docker rm dockerized-service >/dev/null 2>&1 || true
+            if [ -n "$PREV_IMAGE" ]; then
+              echo "Rolling back to previous image: $PREV_IMAGE" >&2
+              docker run -d \
+                --name dockerized-service \
+                --restart unless-stopped \
+                -p "$PORT_BINDING" \
+                --env-file ~/app/.service.env \
+                "$PREV_IMAGE"
+            fi
+            exit 1
+          fi
+
+          docker image prune -f >/dev/null 2>&1 || true
+          echo "Deployment healthy for $IMAGE_REF"
+          EOF
+
+  verify:
+    name: Post-Deploy Live Smoke Verification
+    needs: deploy
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      TARGET_URL: ${{ vars.PUBLIC_URL || format('http://{0}', secrets.SSH_HOST) }}
+      SECRET_MESSAGE: ${{ secrets.SECRET_MESSAGE }}
+      APP_USERNAME: ${{ secrets.APP_USERNAME }}
+      APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+
+    steps:
+      - name: Verify live endpoints without printing secrets
+        run: |
+          set +x
+          ROOT_CODE=$(curl -sS -o /tmp/root.out -w "%{http_code}" "${TARGET_URL}/")
+          ROOT_BODY=$(cat /tmp/root.out)
+          if [ "$ROOT_CODE" != "200" ] || [ "$ROOT_BODY" != "Hello, world!" ]; then
+            echo "FAIL: GET / returned HTTP $ROOT_CODE (body='$ROOT_BODY')" >&2
+            exit 1
+          fi
+          echo "PASS: GET / returned 200 Hello, world!"
+
+          HEALTH_CODE=$(curl -sS -o /dev/null -w "%{http_code}" "${TARGET_URL}/health")
+          if [ "$HEALTH_CODE" != "200" ]; then
+            echo "FAIL: GET /health returned HTTP $HEALTH_CODE" >&2
+            exit 1
+          fi
+          echo "PASS: GET /health returned 200"
+
+          UNAUTH_CODE=$(curl -sS -o /dev/null -w "%{http_code}" "${TARGET_URL}/secret")
+          if [ "$UNAUTH_CODE" != "401" ]; then
+            echo "FAIL: Unauthenticated GET /secret returned HTTP $UNAUTH_CODE (expected 401)" >&2
+            exit 1
+          fi
+          echo "PASS: Unauthenticated GET /secret returned 401"
+
+          BAD_CODE=$(curl -sS -u "${APP_USERNAME}:wrong-password-check" -o /dev/null -w "%{http_code}" "${TARGET_URL}/secret")
+          if [ "$BAD_CODE" != "401" ]; then
+            echo "FAIL: Wrong-password GET /secret returned HTTP $BAD_CODE (expected 401)" >&2
+            exit 1
+          fi
+          echo "PASS: Invalid credentials GET /secret returned 401"
+
+          OK_CODE=$(curl -sS -u "${APP_USERNAME}:${APP_PASSWORD}" -o /tmp/secret.out -w "%{http_code}" "${TARGET_URL}/secret")
+          if [ "$OK_CODE" != "200" ]; then
+            echo "FAIL: Valid GET /secret returned HTTP $OK_CODE" >&2
+            exit 1
+          fi
+
+          if [ "$(cat /tmp/secret.out)" != "$SECRET_MESSAGE" ]; then
+            echo "FAIL: Authenticated GET /secret body did not match SECRET_MESSAGE" >&2
+            exit 1
+          fi
+          rm -f /tmp/root.out /tmp/secret.out
+          echo "PASS: Authenticated GET /secret returned expected SECRET_MESSAGE"
