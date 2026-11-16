@@ -49,6 +49,7 @@ pipeline {
                                 exit /b 1
                             )
                             echo PASS: Source tree clean, zero committed secrets.
+                            exit /b 0
                         '''
                     }
                 }
@@ -79,6 +80,7 @@ pipeline {
                             if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
                             call npm.cmd test
                             if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+                            exit /b 0
                         '''
                     }
                 }
@@ -112,6 +114,7 @@ pipeline {
                                 exit /b 1
                             )
                             echo PASS: Container image verified (.env absent, non-root user uid=1000).
+                            exit /b 0
                         """
                     }
                 }
@@ -139,6 +142,7 @@ pipeline {
                                     echo %REG_PASS%| docker login -u %REG_USER% --password-stdin
                                     docker push ${IMAGE_REF}
                                     docker push ${params.REGISTRY_IMAGE}:latest
+                                    exit /b 0
                                 """
                             }
                         }
@@ -177,6 +181,7 @@ pipeline {
                                     kubectl set image deployment/${APP_NAME} app=${IMAGE_REF} -n ${K8S_NAMESPACE}
                                     echo Waiting for rollout to complete...
                                     kubectl rollout status deployment/${APP_NAME} -n ${K8S_NAMESPACE} --timeout=90s
+                                    exit /b 0
                                 """
                             }
                         }
@@ -194,6 +199,7 @@ pipeline {
                                 kubectl create namespace ${K8S_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
                                 kubectl apply -k k8s/manifests
                                 kubectl set image deployment/${APP_NAME} app=${IMAGE_REF} -n ${K8S_NAMESPACE}
+                                exit /b 0
                             """
                         }
                     }
@@ -222,6 +228,7 @@ pipeline {
                             kubectl get pods -n ${K8S_NAMESPACE} -l app.kubernetes.io/name=${APP_NAME}
                             kubectl get svc -n ${K8S_NAMESPACE}
                             kubectl get hpa -n ${K8S_NAMESPACE}
+                            exit /b 0
                         """
                     }
                 }
