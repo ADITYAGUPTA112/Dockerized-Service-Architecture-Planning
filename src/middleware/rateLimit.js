@@ -1,4 +1,5 @@
 import { prefersHtml, renderErrorHtml } from "../views/templates.js";
+import { trackRateLimitBlock } from "../metrics/telemetry.js";
 
 const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_REQUESTS = 20;
@@ -62,6 +63,7 @@ export function createRateLimitMiddleware({
     const active = existing.filter((timestamp) => timestamp > cutoff);
 
     if (active.length >= maxRequests) {
+      trackRateLimitBlock(req.path || "/secret");
       const retryAfterSeconds = Math.max(
         1,
         Math.ceil((active[0] + windowMs - now) / 1000)

@@ -31,6 +31,8 @@ flowchart LR
     P3 --> P4["Phase 4: GitHub Actions CI/CD"]
     P4 --> P5["Phase 5: Rate Limiting & Hardening"]
     P5 --> P6["Phase 6: Kubernetes & Jenkins"]
+    P6 --> P7["Phase 7: Prometheus & Grafana Observability"]
+    P7 --> P8["Phase 8: GitOps with ArgoCD"]
 ```
 
 | Phase | Name | Primary Objective | Exit Gate (Definition of Done) |
@@ -42,13 +44,15 @@ flowchart LR
 | **Phase 4** | **CI/CD Pipeline (GitHub Actions)** | Automate build, push to `ghcr.io`, and SSH deployment using GitHub Secrets | Push to `main` automatically deploys updated container and passes live health & route checks |
 | **Phase 5** | **Hardening & Optional Enhancements** | Add HTTPS (Caddy/Nginx), rate limiting, IaC (Terraform/Ansible), and rollback verification | TLS active on public endpoint; brute-force & crash-recovery edge cases verified |
 | **Phase 6** | **Kubernetes & Jenkins Orchestration** | Deploy via K8s manifests / Helm chart and run automated CI/CD via Jenkins declarative pipeline | Rolling update healthy, HPA active, Jenkins pipeline stages pass green |
+| **Phase 7** | **Prometheus & Grafana Observability** | Export production RED metrics and runtime telemetry via `/metrics` and visualize on Grafana | `prom-client` integrated, ServiceMonitor active, Grafana dashboard provisioned |
+| **Phase 8** | **GitOps with ArgoCD** | Declarative continuous delivery syncing cluster state directly from Git | ArgoCD Application manifest created with auto-sync and self-healing |
 
 ---
 
 ## Current Repository State
 
 - **Phase 0 (Docs):** [`docs/01-prd.md`](./docs/01-prd.md) – [`docs/05-feature-ticket-list.md`](./docs/05-feature-ticket-list.md)
-- **Phase 1 (Node.js Service):** [`src/`](./src/) and [`tests/`](./tests/) (24/24 unit/route tests passing)
+- **Phase 1 (Node.js Service):** [`src/`](./src/) and [`tests/`](./tests/) (28/28 unit/route tests passing)
 - **Phase 2 (Dockerization):** [`Dockerfile`](./Dockerfile) and [`.dockerignore`](./.dockerignore) (verified on live engine; 0 secrets in layers)
 - **Phase 3 (Remote Server & IaC):** [`infra/`](./infra/) ([`server-setup.sh`](./infra/server-setup.sh), [`Caddyfile`](./infra/Caddyfile), Terraform, Ansible)
 - **Phase 4 (GitHub Actions):** [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml), [`.github/DEPLOYMENT_CHECKLIST.md`](./.github/DEPLOYMENT_CHECKLIST.md)
@@ -58,3 +62,10 @@ flowchart LR
   - **Helm Chart:** [`k8s/helm/dockerized-service/`](./k8s/helm/dockerized-service/)
   - **Jenkins Pipeline:** [`Jenkinsfile`](./Jenkinsfile)
   - **Local Jenkins Setup:** [`infra/jenkins/`](./infra/jenkins/) ([`docker-compose.yml`](./infra/jenkins/docker-compose.yml) + [README.md](./infra/jenkins/README.md))
+- **Phase 7 (Prometheus & Grafana Observability):**
+  - **Telemetry Module:** [`src/metrics/telemetry.js`](./src/metrics/telemetry.js) (RED metrics, auth tracking, throttle tracking, Node runtime)
+  - **Metrics Endpoint:** `GET /metrics` via [`src/routes/index.js`](./src/routes/index.js)
+  - **Kubernetes ServiceMonitor:** [`k8s/manifests/servicemonitor.yaml`](./k8s/manifests/servicemonitor.yaml)
+  - **Grafana Dashboard:** [`k8s/grafana/dockerized-service-dashboard.json`](./k8s/grafana/dockerized-service-dashboard.json)
+- **Phase 8 (GitOps with ArgoCD):**
+  - **ArgoCD Application:** [`k8s/argocd/application.yaml`](./k8s/argocd/application.yaml)

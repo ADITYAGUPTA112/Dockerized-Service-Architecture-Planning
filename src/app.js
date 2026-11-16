@@ -2,6 +2,7 @@ import express from "express";
 import { createIndexRouter } from "./routes/index.js";
 import { createSecretRouter } from "./routes/secret.js";
 import { createErrorHandler, notFoundHandler } from "./middleware/errorHandler.js";
+import { telemetryMiddleware } from "./metrics/telemetry.js";
 
 /**
  * Builds and configures the Express application instance.
@@ -15,6 +16,9 @@ export function createApp(config, options = {}) {
   app.disable("x-powered-by");
   // Trust the first reverse proxy hop (Caddy/Nginx) so rate limiting inspects real client IPs.
   app.set("trust proxy", 1);
+
+  // Prometheus telemetry middleware observing HTTP duration and counts
+  app.use(telemetryMiddleware);
 
   app.use(createIndexRouter());
   app.use(createSecretRouter(config, options.rateLimit));

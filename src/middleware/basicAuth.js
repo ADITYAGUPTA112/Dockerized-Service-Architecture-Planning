@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { prefersHtml, renderUnauthorizedHtml } from "../views/templates.js";
+import { trackAuthAttempt } from "../metrics/telemetry.js";
 
 const REALM_HEADER = 'Basic realm="Secret Area"';
 const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
@@ -91,6 +92,7 @@ export function createBasicAuthMiddleware({ username, password }) {
     const parsed = parseBasicAuthHeader(req.headers.authorization);
 
     if (!parsed.ok) {
+      trackAuthAttempt(parsed.reason);
       const message =
         parsed.reason === "missing"
           ? "Authentication required. Please provide a valid username and password."
@@ -103,9 +105,11 @@ export function createBasicAuthMiddleware({ username, password }) {
     const isPasswordMatch = timingSafeStringEqual(parsed.password, password);
 
     if (!isUserMatch || !isPasswordMatch) {
+      trackAuthAttempt("failure");
       return sendUnauthorized(req, res, "Unauthorized: Invalid username or password.");
     }
 
+    trackAuthAttempt("success");
     return next();
   };
 }

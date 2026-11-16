@@ -1,7 +1,8 @@
 import { Router } from "express";
+import { register } from "../metrics/telemetry.js";
 
 /**
- * Creates the public routes router (`/` and `/health`).
+ * Creates the public routes router (`/`, `/health`, and `/metrics`).
  *
  * @returns {import("express").Router}
  */
@@ -18,6 +19,11 @@ export function createIndexRouter() {
       uptime: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     });
+  });
+
+  router.get("/metrics", async (_req, res) => {
+    res.set("Content-Type", register.contentType);
+    res.status(200).send(await register.metrics());
   });
 
   return router;
