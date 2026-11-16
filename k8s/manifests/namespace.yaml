@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dockerized-service
+  labels:
+    app.kubernetes.io/name: dockerized-service
+    app.kubernetes.io/part-of: kgas-project

@@ -1,0 +1,13 @@
+apiVersion: v2
+name: dockerized-service
+description: Production Helm chart for Dockerized Node.js Service with Basic Auth
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - nodejs
+  - docker
+  - devops
+  - basic-auth
+maintainers:
+  - name: DevOps Engineering Team

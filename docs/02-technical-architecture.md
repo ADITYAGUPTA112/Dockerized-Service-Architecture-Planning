@@ -189,3 +189,43 @@ If V1 later evolves into a multi-user SaaS secrets service, a relational databas
 3. **Always commit `.env.example` with placeholder values only** (e.g., `SECRET_MESSAGE=replace_with_your_secret`) so new contributors know what variables are required.
 4. **Normalize Line Endings (Windows Host Alert):** Because development happens on Windows (`c:\KGAS PROJECT`), configure `.gitattributes` / editor settings so `.sh` scripts, `Dockerfile`, and `.env` use `LF` (`\n`) rather than `CRLF` (`\r\n`), preventing `exec /bin/sh: no such file or directory` or trailing `\r` bugs inside Linux containers.
 5. **Never log `process.env` or parsed credentials:** Startup logs may confirm `"Config loaded: PORT=3000, NODE_ENV=production"` and list missing variable *names*, never variable *values*.
+
+---
+
+## 6. Enterprise Kubernetes & Jenkins Architecture (Phase 6)
+
+For enterprise orchestration, high availability, autoscaling, and on-premise/hybrid CI/CD, the architecture expands to support **Kubernetes** and **Jenkins**:
+
+```mermaid
+flowchart TD
+    subgraph CI["Jenkins CI/CD Pipeline (Jenkinsfile)"]
+        SCM["Git Checkout"] --> LINT["Stage 1: Lint & npm test"]
+        LINT --> DBUILD["Stage 2: Docker Build & Security Audit"]
+        DBUILD --> DPUSH["Stage 3: Docker Push (GHCR / Harbor)"]
+        DPUSH --> KDEPLOY["Stage 4: Deploy to Kubernetes (Manifests/Helm)"]
+        KDEPLOY --> KTEST["Stage 5: Pod Health & Smoke Check"]
+    end
+
+    subgraph K8S["Kubernetes Cluster Architecture"]
+        ING["Ingress Controller (Nginx + TLS)"] --> SVC["ClusterIP Service (Port 80 -> 3000)"]
+        SVC --> P1["Pod Replica 1 (node:22-alpine, non-root)"]
+        SVC --> P2["Pod Replica 2 (node:22-alpine, non-root)"]
+        HPA["HorizontalPodAutoscaler (2-10 replicas)"] -. controls .-> P1
+        HPA -. controls .-> P2
+        CM["ConfigMap (PORT, NODE_ENV)"] --> P1
+        SEC["Secret (SECRET_MESSAGE, USERNAME, PASSWORD)"] --> P1
+        CM --> P2
+        SEC --> P2
+    end
+
+    KDEPLOY --> K8S
+```
+
+### Kubernetes Component Highlights:
+- **Zero-Downtime Deployments:** Rolling updates (`maxSurge: 1`, `maxUnavailable: 0`) ensure no request drops.
+- **Pod Hardening:** Pod security context runs as non-root `uid=1000(node)` with all Linux capabilities dropped and privilege escalation disabled.
+- **Health Probing:** Liveness and readiness probes query `/health` every 5-15 seconds.
+- **Autoscaling:** Horizontal Pod Autoscaler automatically scales from 2 to 10 pods when CPU utilization exceeds 70%.
+- **Deploy Options:**
+  - Raw manifests with Kustomize: `kubectl apply -k k8s/manifests/`
+  - Helm package: `helm upgrade --install dockerized-service ./k8s/helm/dockerized-service`

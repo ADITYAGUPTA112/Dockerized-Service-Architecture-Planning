@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dockerized-service-config
+  namespace: dockerized-service
+  labels:
+    app.kubernetes.io/name: dockerized-service
+data:
+  PORT: "3000"
+  NODE_ENV: "production"

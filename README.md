@@ -25,11 +25,12 @@ The project is strictly divided into **5 sequential phases** so each layer is ve
 
 ```mermaid
 flowchart LR
-    P0["Phase 0: Docs & Repo Governance"] --> P1["Phase 1: Node.js Service & .env"]
-    P1 --> P2["Phase 2: Dockerize & Exclude .env"]
-    P2 --> P3["Phase 3: Remote Linux Server Setup"]
-    P3 --> P4["Phase 4: GitHub Actions CI/CD Deploy"]
-    P4 --> P5["Phase 5: Verification & Hardening"]
+    P0["Phase 0: Docs & Governance"] --> P1["Phase 1: Node.js & .env"]
+    P1 --> P2["Phase 2: Docker & Secret Isolation"]
+    P2 --> P3["Phase 3: Linux Server Setup"]
+    P3 --> P4["Phase 4: GitHub Actions CI/CD"]
+    P4 --> P5["Phase 5: Rate Limiting & Hardening"]
+    P5 --> P6["Phase 6: Kubernetes & Jenkins"]
 ```
 
 | Phase | Name | Primary Objective | Exit Gate (Definition of Done) |
@@ -40,14 +41,20 @@ flowchart LR
 | **Phase 3** | **Remote Linux Server Setup** | Provision Ubuntu VM (DigitalOcean/AWS), configure SSH key access, UFW firewall, and Docker Engine | Non-root deploy user can run Docker via SSH; firewall blocks unnecessary ports |
 | **Phase 4** | **CI/CD Pipeline (GitHub Actions)** | Automate build, push to `ghcr.io`, and SSH deployment using GitHub Secrets | Push to `main` automatically deploys updated container and passes live health & route checks |
 | **Phase 5** | **Hardening & Optional Enhancements** | Add HTTPS (Caddy/Nginx), rate limiting, IaC (Terraform/Ansible), and rollback verification | TLS active on public endpoint; brute-force & crash-recovery edge cases verified |
+| **Phase 6** | **Kubernetes & Jenkins Orchestration** | Deploy via K8s manifests / Helm chart and run automated CI/CD via Jenkins declarative pipeline | Rolling update healthy, HPA active, Jenkins pipeline stages pass green |
 
 ---
 
 ## Current Repository State
 
 - **Phase 0 (Docs):** [`docs/01-prd.md`](./docs/01-prd.md) – [`docs/05-feature-ticket-list.md`](./docs/05-feature-ticket-list.md)
-- **Phase 1 (Node.js Service):** [`src/`](./src/) and [`tests/`](./tests/) (`GET /`, `GET /secret`, `GET /health`, `.env` validation)
-- **Phase 2 (Dockerization):** [`Dockerfile`](./Dockerfile) and [`.dockerignore`](./.dockerignore) (run local `T-202` verification once Docker Desktop is started)
+- **Phase 1 (Node.js Service):** [`src/`](./src/) and [`tests/`](./tests/) (24/24 unit/route tests passing)
+- **Phase 2 (Dockerization):** [`Dockerfile`](./Dockerfile) and [`.dockerignore`](./.dockerignore) (verified on live engine; 0 secrets in layers)
 - **Phase 3 (Remote Server & IaC):** [`infra/`](./infra/) ([`server-setup.sh`](./infra/server-setup.sh), [`Caddyfile`](./infra/Caddyfile), Terraform, Ansible)
-- **Phase 4 (CI/CD & Browser Views):** [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml), [`.github/DEPLOYMENT_CHECKLIST.md`](./.github/DEPLOYMENT_CHECKLIST.md), [`src/views/templates.js`](./src/views/templates.js)
-- **Phase 5 (Hardening):** [`src/middleware/rateLimit.js`](./src/middleware/rateLimit.js) (`429 Too Many Requests` sliding-window IP limiter on `/secret`)
+- **Phase 4 (GitHub Actions):** [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml), [`.github/DEPLOYMENT_CHECKLIST.md`](./.github/DEPLOYMENT_CHECKLIST.md)
+- **Phase 5 (Hardening):** [`src/middleware/rateLimit.js`](./src/middleware/rateLimit.js) (sliding-window IP limiter)
+- **Phase 6 (Kubernetes & Jenkins):**
+  - **Kubernetes Manifests:** [`k8s/manifests/`](./k8s/manifests/) (Deployment, Service, Ingress, HPA, ConfigMap, Secret, Kustomize)
+  - **Helm Chart:** [`k8s/helm/dockerized-service/`](./k8s/helm/dockerized-service/)
+  - **Jenkins Pipeline:** [`Jenkinsfile`](./Jenkinsfile)
+  - **Local Jenkins Setup:** [`infra/jenkins/`](./infra/jenkins/) ([`docker-compose.yml`](./infra/jenkins/docker-compose.yml) + [README.md](./infra/jenkins/README.md))
