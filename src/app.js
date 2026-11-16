@@ -20,7 +20,7 @@ export function createApp(config, options = {}) {
   // Prometheus telemetry middleware observing HTTP duration and counts
   app.use(telemetryMiddleware);
 
-  app.use(createIndexRouter());
+  app.use(createIndexRouter(config));
   app.use(createSecretRouter(config, options.rateLimit));
   app.use(notFoundHandler);
   app.use(createErrorHandler(config.nodeEnv));

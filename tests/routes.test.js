@@ -84,14 +84,19 @@ describe("HTTP Routes", () => {
     assert.equal(res.text, "Not Found: The requested route does not exist.");
   });
 
-  it("Browser Accept: text/html keeps GET / plain text while rendering styled HTML on /secret and errors", async () => {
+  it("Browser Accept: text/html renders styled HTML dashboard on / and styled cards on /secret and errors", async () => {
     const browserAccept =
       "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
 
     const rootRes = await request(app).get("/").set("Accept", browserAccept);
     assert.equal(rootRes.status, 200);
-    assert.match(rootRes.headers["content-type"], /text\/plain/);
-    assert.equal(rootRes.text, "Hello, world!");
+    assert.match(rootRes.headers["content-type"], /text\/html/);
+    assert.match(rootRes.text, /Dockerized Service/);
+
+    const dashboardRes = await request(app).get("/dashboard");
+    assert.equal(dashboardRes.status, 200);
+    assert.match(dashboardRes.headers["content-type"], /text\/html/);
+    assert.match(dashboardRes.text, /Dockerized Service/);
 
     const unauthHtml = await request(app)
       .get("/secret")
