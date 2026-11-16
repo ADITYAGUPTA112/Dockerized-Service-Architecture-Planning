@@ -219,5 +219,62 @@
 - **Task Description (AI Prompt):**
   > Add lightweight rate limiting (e.g., `express-rate-limit` or a clean in-memory sliding-window middleware) on `/secret` allowing up to 20 requests per 15 minutes per IP (respecting `app.set('trust proxy', 1)` when behind Caddy/Nginx), returning `429 Too Many Requests` with `Retry-After` header upon excess failed/repeated attempts. Add unit tests verifying normal access passes and burst abuse is throttled.
 - **Acceptance Criteria:**
-  - [ ] Repeated brute-force requests to `/secret` trigger `429 Too Many Requests`.
-  - [ ] Normal usage and `GET /` / `GET /health` remain unaffected.
+  - [x] Repeated brute-force requests to `/secret` trigger `429 Too Many Requests`.
+  - [x] Normal usage and `GET /` / `GET /health` remain unaffected.
+
+---
+
+## Phase 6: Kubernetes & Jenkins Orchestration
+
+### Ticket T-601: Kubernetes Production Manifests & Helm Chart
+- **Phase:** Phase 6
+- **Priority:** Must-Have for Kubernetes
+- **Dependencies:** Phase 2 (Docker image verified)
+- **Task Description (AI Prompt):**
+  > Author production-grade Kubernetes manifests (`k8s/manifests/`) and a complete Helm 3 chart (`k8s/helm/dockerized-service/`) for zero-downtime deployment: Deployment (with RollingUpdate strategy, liveness/readiness probes on `/health`, securityContext dropping ALL capabilities and running as UID 1000, and resource limits), ClusterIP Service, Ingress (with TLS termination and cert-manager annotations), Horizontal Pod Autoscaler (HPA scaling 2-10 replicas based on CPU/Memory), ConfigMap, and Secret.
+- **Acceptance Criteria:**
+  - [x] `kustomize build k8s/manifests` compiles valid YAML.
+  - [x] Helm templates validate and render cleanly.
+  - [x] Pod security standards conform to `restricted` profile.
+
+---
+
+### Ticket T-602: Cross-Platform Jenkins Declarative Pipeline (`Jenkinsfile`)
+- **Phase:** Phase 6
+- **Priority:** Must-Have for Jenkins
+- **Dependencies:** T-601
+- **Task Description (AI Prompt):**
+  > Create a production Declarative Jenkinsfile supporting both Linux and Windows Jenkins controllers. Include stages: Checkout & Secret Hygiene, Lint & Automated Tests, Docker Build & Filesystem Audit (.env absent, UID 1000), Push to Registry, Deploy to Kubernetes, and Smoke Test Verification. Provide local Jenkins Docker Compose bundle in `infra/jenkins/`.
+- **Acceptance Criteria:**
+  - [x] Pipeline executes cleanly on both Linux (`sh`) and Windows (`bat`).
+  - [x] Secret hygiene check halts pipeline if `.env` is accidentally committed.
+  - [x] Jenkins build finishes with status `SUCCESS`.
+
+---
+
+## Phase 7: Prometheus Telemetry & Grafana Observability
+
+### Ticket T-701: RED Metrics Export & Grafana Dashboard
+- **Phase:** Phase 7
+- **Priority:** Must-Have for Production Observability
+- **Dependencies:** Phase 1, Phase 6
+- **Task Description (AI Prompt):**
+  > Implement Prometheus metrics export using `prom-client` on `GET /metrics` (`http_requests_total`, `http_request_duration_seconds`, `auth_attempts_total`, `rate_limit_blocks_total`, and Node.js process metrics). Create Prometheus Operator `ServiceMonitor` manifest, update Service annotations, and build a Grafana dashboard JSON (`k8s/grafana/dockerized-service-dashboard.json`).
+- **Acceptance Criteria:**
+  - [x] `GET /metrics` outputs standard Prometheus exposition format.
+  - [x] Automated test suite in `tests/metrics.test.js` passes.
+  - [x] Grafana dashboard JSON imports with 6 production panels.
+
+---
+
+## Phase 8: GitOps Continuous Delivery with ArgoCD
+
+### Ticket T-801: Declarative ArgoCD Application Specification
+- **Phase:** Phase 8
+- **Priority:** Must-Have for GitOps
+- **Dependencies:** Phase 6
+- **Task Description (AI Prompt):**
+  > Create declarative ArgoCD Application manifest (`k8s/argocd/application.yaml`) targeting the GitHub repository and `k8s/manifests` path with automated synchronization, resource pruning, and self-healing.
+- **Acceptance Criteria:**
+  - [x] `k8s/argocd/application.yaml` specifies automated sync and selfHeal.
+  - [x] Cluster state converges automatically on git commits to `main`.

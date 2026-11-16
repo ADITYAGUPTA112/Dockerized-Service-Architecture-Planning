@@ -229,3 +229,41 @@ flowchart TD
 - **Deploy Options:**
   - Raw manifests with Kustomize: `kubectl apply -k k8s/manifests/`
   - Helm package: `helm upgrade --install dockerized-service ./k8s/helm/dockerized-service`
+
+---
+
+## 7. Production Observability: Prometheus & Grafana (Phase 7)
+
+```mermaid
+flowchart LR
+    POD["Dockerized Service Pods (/metrics)"] -- "Scrape every 15s" --> PROM["Prometheus Server / Operator"]
+    SM["ServiceMonitor (CRD)"] -. defines scrape targets .-> PROM
+    PROM --> GRAF["Grafana Dashboard (dockerized-service-prod)"]
+    GRAF --> M1["Request Rate (RPS by route & status)"]
+    GRAF --> M2["Latency Percentiles (p50 / p95 / p99)"]
+    GRAF --> M3["Auth Outcomes (success vs failure)"]
+    GRAF --> M4["Rate Limiting Blocks (HTTP 429 count)"]
+    GRAF --> M5["Node.js Heap & Event Loop Lag"]
+```
+
+### Telemetry Specifications:
+1. **RED Method:** Rate (`http_requests_total`), Errors (`status_code=~"5.."|"4.."`), and Duration (`http_request_duration_seconds`).
+2. **Security Telemetry:** Authentication success/failure tracking and brute-force IP throttling counters.
+3. **Runtime Metrics:** Native Node.js garbage collection, heap allocated vs used, and event loop latency via `nodejs_*` gauges.
+4. **Pre-Built Dashboard:** Located at `k8s/grafana/dockerized-service-dashboard.json`.
+
+---
+
+## 8. Declarative GitOps: ArgoCD (Phase 8)
+
+```mermaid
+flowchart LR
+    GIT["GitHub Repo (main branch)"] --> ARGO["ArgoCD Controller"]
+    ARGO -- "Automated Sync & Self-Healing" --> K8S["Kubernetes Cluster (dockerized-service)"]
+    ARGO -. watches .-> MAN["k8s/manifests/ (Kustomize)"]
+```
+
+### GitOps Delivery Features:
+- **Zero Drift:** Out-of-sync cluster resources are automatically detected and self-healed back to the Git source of truth.
+- **Automated Pruning:** Removed resources in Git are pruned safely from the Kubernetes namespace.
+- **Declarative Spec:** Defined in `k8s/argocd/application.yaml`.
